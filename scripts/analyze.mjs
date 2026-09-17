@@ -126,7 +126,11 @@ async function analyze(opts) {
   const dirTop = { size: [], allocated: [] };
   const extMap = new Map();   // 小写扩展名(无点)或 '' -> {count,size,allocated}
   const ageMap = new Map();   // 年份 -> {count,size}
-  const dupMap = new Map();   // size|小写文件基名 -> [{path,size,allocated}]
+  // size|小写文件基名 -> { count 真实计数, paths 有界样本(最多 12 条) }
+  // 计数与样本分开：只截断"展示的路径"，绝不截断 count，否则大组会被低估成 40。
+  // 总组数不设上限：一次性扫整盘时同名同大小的候选组可能上千，
+  // 早先"满 400 组就 break"会让真正最可回收的那组按 CSV 出现顺序被漏掉。
+  const dupMap = new Map();
   const stack = [];
 
   function finalize(folder) {
@@ -270,10 +274,11 @@ async function analyze(opts) {
     }
 
     if (opts.dups && size > 0n && Number(size) >= opts.minSize) {
-      const key = size.toString() + '|' + leaf.toLowerCase();
-      let arr = dupMap.get(key);
-      if (!arr) { arr = []; dupMap.set(key, arr); }
-      if (arr.length < 40) arr.push(item);
+      const dkey = size.toString() + '|' + leaf.toLowerCase();
+      let d = dupMap.get(dkey);
+      if (!d) { d = { count: 0, paths: [] }; dupMap.set(dkey, d); }
+      d.count++;
+      if (d.paths.length < 12) d.paths.push(path);
     }
   }
   while (stack.length) finalize(stack.pop());
@@ -290,14 +295,14 @@ async function analyze(opts) {
   let duplicates = null;
   if (opts.dups) {
     duplicates = [];
-    for (const [key, arr] of dupMap) {
-      if (arr.length < 2) continue;
-      const size = Number(key.split('|')[0]);
-      duplicates.push({ size, count: arr.length, paths: arr.map(x => x.path).slice(0, 12) });
-      if (duplicates.length >= 400) break;
+    for (const [dkey, d] of dupMap) {
+      if (d.count < 2) continue;
+      const size = Number(dkey.split('|')[0]);
+      // 全组参与排序后再取前 12：只保留"可回收最大的那些组"，不做先到先得式截断
+      duplicates.push({ size, count: d.count, paths: d.paths, reclaimable: size * (d.count - 1) });
     }
-    duplicates.sort((a, b) => b.size * b.count - a.size * a.count);
-    duplicates = duplicates.slice(0, 12).map(d => ({ ...d, reclaimable: d.size * (d.count - 1) }));
+    duplicates.sort((a, b) => b.reclaimable - a.reclaimable);
+    duplicates = duplicates.slice(0, 12);
   }
 
   return {
@@ -324,11 +329,13 @@ async function analyze(opts) {
       rootRecursiveSize: root ? fmtBytes(root.size) : null,
       selfCheck: root && Number(root.size) === Number(totals.size) ? 'ok' : (root ? 'MISMATCH(root行 vs 文件求和)' : 'no-root-row'),
     },
-    topFiles: byDesc(fileTop[opts.key], 'size').map(x => ({
-      path: x.path, size: fmtBytes(x.size), allocated: fmtBytes(x.allocated), sizeBytes: x.size,
+    // 排序键与展示值必须同一口径：此前 --key allocated 会"按 allocated 选、按 size 排"，
+    // 榜单集合对但顺序错、显示的数字也还是逻辑大小，看起来就像算错了。
+    topFiles: byDesc(fileTop[opts.key], opts.key).map(x => ({
+      path: x.path, size: fmtBytes(x.size), allocated: fmtBytes(x.allocated), sizeBytes: x[opts.key],
     })),
-    topFolders: byDesc(dirTop[opts.key], 'size').map(x => ({
-      path: x.path, exclusiveSize: fmtBytes(x.size), sizeBytes: x.size, files: x.files, folders: x.folders,
+    topFolders: byDesc(dirTop[opts.key], opts.key).map(x => ({
+      path: x.path, exclusiveSize: fmtBytes(x[opts.key]), sizeBytes: x[opts.key], files: x.files, folders: x.folders,
     })),
     extensions: extensions.map(x => ({ name: x.name, count: x.count, size: fmtBytes(x.size), allocated: fmtBytes(x.allocated) })),
     age: opts.age ? byDesc(Array.from(ageMap.entries()).map(([y, v]) => ({ year: y, count: v.count, size: Number(v.size) })), 'size')
@@ -357,11 +364,11 @@ function printMarkdown(o) {
   if (o.stats.unattributedFiles) L.push(`- 注: ${o.stats.unattributedFiles} 个文件未归属到任何文件夹（父目录行不在结果集内）`);
   L.push('');
 
-  L.push(`### 最大文件 Top ${o.topFiles.length}`);
-  o.topFiles.forEach((x, i) => L.push(`${i + 1}. **${x.size}**  \`${x.path}\``));
+  L.push(`### 最大文件 Top ${o.topFiles.length}${o.key === 'allocated' ? '（按实际占盘）' : ''}`);
+  o.topFiles.forEach((x, i) => L.push(`${i + 1}. **${o.key === 'allocated' ? x.allocated : x.size}**  \`${x.path}\``));
   L.push('');
 
-  L.push(`### 文件夹独占占用 Top ${o.topFolders.length}（不含子文件夹）`);
+  L.push(`### 文件夹独占占用 Top ${o.topFolders.length}（不含子文件夹${o.key === 'allocated' ? '，按实际占盘' : ''}）`);
   o.topFolders.forEach((x, i) => L.push(`${i + 1}. **${x.exclusiveSize}**  \`${x.path}\`  (${x.files} 文件 / ${x.folders} 子目录)`));
   L.push('');
 
