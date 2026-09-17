@@ -1,0 +1,13 @@
+# WizTree 导出的 CSV 清单（整盘可达数百 MB，绝不入库）
+*.csv
+report.json
+
+# 扫描用的隔离配置目录（/configfolder）
+WizTree3.ini
+wiztree-config/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
