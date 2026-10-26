@@ -3,7 +3,7 @@
 > 给 AI Agent 用的 **Windows 磁盘占用分析 skill**：把 [WizTree](https://diskanalyzer.com) 的命令行全量导出，
 > 和一个流式 CSV 分析器组合起来，让「C 盘怎么又满了 / 帮我看看哪里能清理」变成一条可复现、可复用的命令。
 
-`Windows` · `Node 16+` · `WizTree 4.x` · `只读` · [MIT](LICENSE)
+`Windows` · `Node 16+` · `WizTree 4.x` · `只读` · [AGPL-3.0-or-later](LICENSE)
 
 - **不开 GUI** —— WizTree 无窗口扫描 + 导出全量 CSV（整盘 C: 实测约 30 秒 / 262 MB / 138 万行）
 - **不炸上下文** —— 导出的 CSV 绝不读进模型上下文，一律交给 `analyze.mjs` 流式统计，压成几十行报告
@@ -273,7 +273,7 @@ Read-only by design: it never deletes anything, and it refuses to judge success 
 
 ## 许可与致谢
 
-本仓库以 [MIT](LICENSE) 许可发布。
+本仓库以 [GNU Affero General Public License v3.0 or later](LICENSE)（AGPL-3.0-or-later）许可发布，即许可第 3 版或（由你选择）任何更新版本；Copyright (C) 2026 GuHan-OvO。
 
 [WizTree](https://diskanalyzer.com) 是 **Antibody Software** 的独立产品，本仓库**不含**其任何二进制文件；
 `references/` 里的命令行行为与 CSV 格式结论均来自对 WizTree **4.32** 导出的实测。
